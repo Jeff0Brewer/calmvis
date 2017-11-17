@@ -23,12 +23,12 @@ namespace calmvis
         EyeXHost host;
         Point gaze = new Point();
         Point curr = new Point();
-        double smoothing = .95;
+        double smoothing = .9;
 
         Blob blob;
-        int length = 10;
+        int length = 7;
         double size = 50;
-        double decay = .9;
+        double decay = .6;
 
         public MainWindow()
         {
@@ -41,6 +41,10 @@ namespace calmvis
 
         private void init(object sender, RoutedEventArgs e)
         {
+            ImageBrush ib = new ImageBrush();
+            ib.ImageSource = new BitmapImage(new Uri(@"txtBg.jpg", UriKind.Relative));
+            c.Background = ib;
+
             host = new EyeXHost();
             host.Start();
             var gazeData = host.CreateGazePointDataStream(GazePointDataMode.LightlyFiltered);
@@ -62,51 +66,95 @@ namespace calmvis
         }
 
         private class Blob {
-            private int length;
+            private int length, currlength;
             private double size;
             private double decay;
-            private EllipseGeometry[] shapes;
-            private double[] goal;
-            private int lastShape;
+            private bool frozen;
+            private double speed;
+            private Point prev;
+            private int moveCount;
+            private Dot start, end;
+            private Canvas c;
             public PathGeometry path;
 
             public Blob(int l, double s, double d) {
                 length = l;
+                currlength = 1;
                 size = s;
                 decay = d;
 
-                shapes = new EllipseGeometry[length];
-                goal = new double[length];
-                for (int i = 0; i < length; i++) {
-                    shapes[i] = new EllipseGeometry(new Point(i*size*2,0),size,size);
-                    goal[i] = -1;
-                }
-                lastShape = 0;
+                start = new Dot(new Point(0, 0), size, decay);
+                end = start;
+
+                speed = 0;
+                prev = new Point();
+                frozen = true;
+                moveCount = 0;
+
                 path = new PathGeometry();
                 path.FillRule = FillRule.Nonzero;
             }
 
+            private double distance(Point a, Point b)
+            {
+                return Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
+            }
+
+            private void clear() {
+                frozen = true;
+                moveCount = 0;
+                Dot curr = start.next;
+                while (curr != null) {
+                    curr.setGoal(0);
+                    curr = curr.next;
+                }
+                start.setGoal(1);
+                end = start;
+                currlength = 1;
+            }
+
             public void next(Point p){
-                for (int i = 0; i < length; i++){
-                    if (goal[i] != -1) {
-                        double rad = shapes[i].RadiusX * decay + goal[i] * (1 - decay);
-                        if (Math.Abs(goal[i] - rad) < .05) {
-                            rad = goal[i];
-                            goal[i] = -1;
-                        }
-                        shapes[i].RadiusX = rad;
-                        shapes[i].RadiusY = rad;
+                speed = speed * .8 + distance(prev, p) * .2;
+                prev = p;
+
+                Dot curr;
+                if (!path.FillContains(p) && !frozen) //if point is outside of current area
+                {
+                    moveCount++;
+
+                    //Add new dot
+                    curr = new Dot(p, size, decay, start);
+                    start.prev = curr;
+                    start = curr;
+                    currlength++;
+
+                    //Remove last dot if max length exceeded
+                    if (currlength > length)
+                    {
+                        end.setGoal(0);
+                        end = end.prev;
+                        currlength--;
                     }
+
+                    if (moveCount > length/2)
+                        clear();
                 }
-                if (!path.FillContains(p)){
-                    shapes[lastShape] = new EllipseGeometry(p, 0, 0);
-                    goal[lastShape] = size;
-                    lastShape = (lastShape + 1) % length;
-                    goal[lastShape] = 0;
-                }
+                else
+                    moveCount = 0;
+
+                frozen = frozen && speed > 5;
+                
+                curr = start;
                 path.Clear();
-                for (int i = 0; i < length; i++)
-                    path.AddGeometry(shapes[i]);
+                while (curr != null)
+                {
+                    double check = curr.update();
+                    if (check == -1)
+                        curr.prev.next = null;
+                    else
+                        path.AddGeometry(curr.shape); 
+                    curr = curr.next;
+                }
             }
         }
 
@@ -131,6 +179,52 @@ namespace calmvis
         public PathGeometry Geometry {
             get {
                 return blob.path;
+            }
+        }
+
+        public class Dot{
+            public EllipseGeometry shape;
+            private double size, curr, goal;
+            private double decay;
+            private Point center;
+            public Dot next, prev;
+
+            public Dot(Point c, double s, double d, Dot n) {
+                curr = 0;
+                size = s;
+                goal = s;
+                decay = d;
+                center = c;
+                next = n;
+                prev = null;
+                shape = new EllipseGeometry(center, curr, curr);
+            }
+
+            public Dot(Point center, double s, double d)
+            {
+                curr = 0;
+                goal = s;
+                decay = d;
+                next = null;
+                prev = null;
+                shape = new EllipseGeometry(center, curr, curr);
+            }
+
+            public double update() {
+                curr = curr * decay + goal * (1 - decay);
+                shape.RadiusX = curr;
+                shape.RadiusY = curr;
+                if (Math.Abs(curr - goal) < .1 && goal == 0)
+                    return -1;
+                return 0;
+            }
+
+            public void setPrev(Dot p) {
+                prev = p;
+            }
+
+            public void setGoal(double g) {
+                goal = g;
             }
         }
     }
