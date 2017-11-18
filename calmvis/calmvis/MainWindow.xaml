@@ -10,6 +10,6 @@
         Closed="onClose"
         Loaded="init">
     <Canvas Name="c" Background="White">
-        <Path Data="{Binding Path=Geometry}" Fill="Black" Opacity=".2"/>
+        <Path Data="{Binding Path=clusterPath}" Fill="Black" Opacity=".2"/>
     </Canvas>
 </Window>
