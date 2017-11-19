@@ -28,6 +28,10 @@ namespace calmvis
         double decay = .7;
         double smoothing = .6;
 
+        ImgCrop imgCrop;
+        String img = "txtBg.jpg";
+        double zoom = .98;
+
         public MainWindow()
         {
             this.DataContext = this;
@@ -39,8 +43,11 @@ namespace calmvis
 
         private void init(object sender, RoutedEventArgs e)
         {
+            imgCrop = new ImgCrop(img, c.ActualWidth, c.ActualHeight, zoom);
+
             ImageBrush ib = new ImageBrush();
             ib.ImageSource = new BitmapImage(new Uri(@"txtBg.jpg", UriKind.Relative));
+            ib.Stretch = Stretch.UniformToFill;
             c.Background = ib;
 
             host = new EyeXHost();
@@ -57,11 +64,13 @@ namespace calmvis
 
         private void tick(object sender, EventArgs e) {
             //cluster.next(PointFromScreen(gaze));
-            cluster.next(gaze);
+            PathGeometry path = cluster.next(gaze);
+            vis.Data = path;
+            vis.Fill = imgCrop.getCrop(path.Bounds.TopLeft, path.Bounds.Width, path.Bounds.Height);
         }
 
         public class Cluster {
-            public PathGeometry path;
+            private PathGeometry path;
             private Dot start;
             private double size;
             private double decay, smoothing;
@@ -81,7 +90,7 @@ namespace calmvis
                 speed = 0;
             }
 
-            public void next(Point p) {
+            public PathGeometry next(Point p) {
                 p.X = prev.X * smoothing + p.X * (1 - smoothing);
                 p.Y = prev.Y * smoothing + p.Y * (1 - smoothing);
 
@@ -126,6 +135,7 @@ namespace calmvis
                         path.AddGeometry(dot.shape);
                     dot = dot.next;
                 }
+                return path;
             }
 
             private double distance(Point a, Point b)
@@ -168,6 +178,52 @@ namespace calmvis
             }
         }
 
+        public class ImgCrop {
+            private BitmapImage src;
+            private double ratioX, ratioY;
+            private double offsetX, offsetY;
+            private double zoom;
+
+            public ImgCrop(String img, double bgWidth, double bgHeight, double z){
+                zoom = z;
+
+                src = new BitmapImage();
+                src.BeginInit();
+                src.UriSource = new Uri(img, UriKind.Relative);
+                src.EndInit();
+
+                ratioX = src.PixelWidth / bgWidth;
+                ratioY = src.PixelHeight / bgHeight;
+                if (ratioX < ratioY){
+                    ratioY = ratioX;
+                    offsetX = 0;
+                    offsetY = src.PixelWidth * ((src.PixelHeight / (double)src.PixelWidth) - (bgHeight / bgWidth)) / 2;
+                }
+                else{
+                    ratioX = ratioY;
+                    offsetY = 0;
+                    offsetX = src.PixelHeight * ((src.PixelWidth / (double)src.PixelHeight) - (bgWidth / bgHeight)) / 2;
+                }
+            }
+
+            public ImageBrush getCrop(Point topLeft, double width, double height) {
+                double cX = topLeft.X + width / 2;
+                double cY = topLeft.Y + height / 2;
+
+                try{
+                    ImageBrush brush = new ImageBrush(new CroppedBitmap(src, new Int32Rect((int)((cX - (width / 2) * zoom) * ratioX + offsetX),
+                                                                                           (int)((cY - (height / 2) * zoom) * ratioY + offsetY),
+                                                                                           (int)((width * zoom) * ratioX),
+                                                                                           (int)((height * zoom) * ratioY))));
+                    brush.Stretch = Stretch.UniformToFill;
+                    return brush;
+                }
+                catch{
+                    return null;
+                }
+            }
+        }
+
         private void newPoint(object s, EyeXFramework.GazePointEventArgs e)
         {
             gaze.X = e.X;
@@ -179,12 +235,6 @@ namespace calmvis
             Point e = args.GetPosition(c);
             gaze.X = e.X;
             gaze.Y = e.Y;
-        }
-
-        public PathGeometry clusterPath {
-            get {
-                return cluster.path;
-            }
         }
 
         private void onClose(object s, EventArgs e)
